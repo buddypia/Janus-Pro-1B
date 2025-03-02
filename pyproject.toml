@@ -1,0 +1,16 @@
+[project]
+name = "picture-book"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "lee_junho",email = "lee_junho@cyberagent.co.jp"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
