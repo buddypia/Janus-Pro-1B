@@ -11,21 +11,23 @@ from datetime import datetime
 
 def main():
     parser = argparse.ArgumentParser(description='プログラムの説明')
-    
+
     # 引数の定義
     parser.add_argument('--prompt', type=str, help='Prompt')
-    
+
     # 引数の解析
     args = parser.parse_args()
 
     print(f"Prompt: {args.prompt}")
-    
+
     start_time = time.time()
 
     print(f"Starting the generation process... Start time: {start_time} seconds")
 
-    # Check if MPS is available
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    # Check if a GPU is available
+    device = torch.device("cuda" if torch.cuda.is_available() else
+                          "mps" if torch.backends.mps.is_available() else
+                          "cpu")
     print(f"Using device: {device}")
 
     # specify the path to the model
@@ -37,7 +39,7 @@ def main():
     # Load the model
     print("Loading model...")
     vl_gpt = AutoModelForCausalLM.from_pretrained(
-        model_path, 
+        model_path,
         trust_remote_code=True
     )
     vl_gpt = vl_gpt.to(torch.bfloat16).to(device).eval()  # bfloat16 for memory efficiency
@@ -90,16 +92,16 @@ def main():
         print("Beginning token generation...")
         for i in tqdm(range(image_token_num_per_image), desc="Generating image tokens"):
             outputs = mmgpt.language_model.model(
-                inputs_embeds=inputs_embeds, 
-                use_cache=True, 
+                inputs_embeds=inputs_embeds,
+                use_cache=True,
                 past_key_values=outputs.past_key_values if i != 0 else None
             )
             hidden_states = outputs.last_hidden_state
-            
+
             logits = mmgpt.gen_head(hidden_states[:, -1, :])
             logit_cond = logits[0::2, :]
             logit_uncond = logits[1::2, :]
-            
+
             logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
             probs = torch.softmax(logits / temperature, dim=-1)
 
@@ -112,7 +114,7 @@ def main():
 
         print("Decoding generated tokens into image...")
         dec = mmgpt.gen_vision_model.decode_code(
-            generated_tokens.to(dtype=torch.int), 
+            generated_tokens.to(dtype=torch.int),
             shape=[parallel_size, 8, img_size//patch_size, img_size//patch_size]
         )
         dec = dec.to(torch.float32).cpu().numpy().transpose(0, 2, 3, 1)
@@ -124,16 +126,16 @@ def main():
         print("Saving generated image...")
         # Create a base directory for all generated samples
         os.makedirs('generated_samples', exist_ok=True)
-        
+
         # Create a new directory with timestamp for this generation
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         generation_dir = os.path.join('generated_samples', f'generation_{timestamp}')
         os.makedirs(generation_dir, exist_ok=True)
-        
+
         for i in range(parallel_size):
             save_path = os.path.join(generation_dir, f"img_{i}.jpg")
             PIL.Image.fromarray(visual_img[i]).save(save_path)
-        
+
         print(f"Generation complete! Check the '{generation_dir}' directory for your images.")
 
         elapsed_time = time.time() - start_time
