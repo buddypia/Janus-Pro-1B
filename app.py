@@ -242,4 +242,4 @@ def list_images(generation_id):
         return jsonify({'error': 'Generation ID not found'}), 404
 
 if __name__ == '__main__':
-    app.run(debug=True)  # 開発中はdebug=Trueにしておくと便利
+    app.run(host='0.0.0.0', debug=False)

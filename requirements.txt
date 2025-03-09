@@ -8,6 +8,7 @@ einops==0.8.1
 filelock==3.17.0
 Flask==3.1.0
 fsspec==2025.3.0
+gunicorn==23.0.0
 huggingface-hub==0.29.2
 idna==3.10
 itsdangerous==2.2.0
