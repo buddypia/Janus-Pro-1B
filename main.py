@@ -9,16 +9,22 @@ from tqdm import tqdm
 import argparse
 from datetime import datetime
 
+import random
+import string
+
 def main():
     parser = argparse.ArgumentParser(description='プログラムの説明')
 
     # 引数の定義
     parser.add_argument('--prompt', type=str, help='Prompt')
+    parser.add_argument('--quality', type=str, choices=['low', 'high'], default='low', 
+                        help='Quality setting: low for Janus-Pro-1B, high for Janus-Pro-7B')
 
     # 引数の解析
     args = parser.parse_args()
 
     print(f"Prompt: {args.prompt}")
+    print(f"Quality: {args.quality}")
 
     start_time = time.time()
 
@@ -30,8 +36,14 @@ def main():
                           "cpu")
     print(f"Using device: {device}")
 
-    # specify the path to the model
-    model_path = "deepseek-ai/Janus-Pro-1B"
+    # specify the path to the model based on quality
+    if args.quality == 'low':
+        model_path = "deepseek-ai/Janus-Pro-1B"
+        print("Using low quality model (1B)...")
+    else:
+        model_path = "deepseek-ai/Janus-Pro-7B"
+        print("Using high quality model (7B)...")
+        
     print("Loading processor and tokenizer...")
     vl_chat_processor = VLChatProcessor.from_pretrained(model_path)
     tokenizer = vl_chat_processor.tokenizer
@@ -127,13 +139,16 @@ def main():
         # Create a base directory for all generated samples
         os.makedirs('generated_samples', exist_ok=True)
 
-        # Create a new directory with timestamp for this generation
+
+        # このジェネレーション用にタイムスタンプ+ランダム文字列の新しいディレクトリを作成
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        generation_dir = os.path.join('generated_samples', f'generation_{timestamp}')
+        random_str = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+        generation_id = f"{timestamp}_{random_str}"
+        generation_dir = os.path.join('generated_images', generation_id)
         os.makedirs(generation_dir, exist_ok=True)
 
         for i in range(parallel_size):
-            save_path = os.path.join(generation_dir, f"img_{i}.jpg")
+            save_path = os.path.join(generation_dir, f"{i + 1}.jpg")
             PIL.Image.fromarray(visual_img[i]).save(save_path)
 
         print(f"Generation complete! Check the '{generation_dir}' directory for your images.")
