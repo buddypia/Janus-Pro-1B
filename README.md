@@ -1,5 +1,11 @@
 # Janus-Pro API
-## Developement
+## environment
+python version Python 3.12.8
+```bash
+pip install -r requirements.txt
+```
+
+## test
 main.py
 ```bash
 python main.py --prompt "A warm, cozy illustration of a Japanese countryside kitchen where a smiling grandmother and her small grandchild are making onigiri (rice balls) together. Their hands are forming a triangle-shaped rice ball that glows with a soft magical light. Through the window, a beautiful autumn landscape can be seen with red maple leaves falling. The kitchen has traditional Japanese elements with modern touches. The scene is bathed in golden afternoon light, creating a heartwarming atmosphere. The grandmother is teaching the child with patience and love, and there's a small cat watching them curiously from the corner."
