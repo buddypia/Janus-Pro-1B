@@ -9,7 +9,6 @@ from janus.models import MultiModalityCausalLM, VLChatProcessor
 from datetime import datetime
 import random
 import string
-import sys
 from threading import Thread
 
 app = Flask(__name__)
