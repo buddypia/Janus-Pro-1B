@@ -9,8 +9,13 @@ from janus.models import MultiModalityCausalLM, VLChatProcessor
 from datetime import datetime
 import random
 import string
+import sys
+from threading import Thread
 
 app = Flask(__name__)
+
+# 基本設定
+app.config['JSON_AS_ASCII'] = False  # 日本語などのUnicode文字を正しく処理
 
 # グローバル変数として必要なモデルとプロセッサを読み込む
 device = None
@@ -18,6 +23,10 @@ vl_chat_processor_1b = None
 vl_gpt_1b = None
 vl_chat_processor_7b = None
 vl_gpt_7b = None
+
+# タスク状態を管理するグローバル辞書
+# ステータス: 'pending', 'processing', 'completed', 'failed'
+tasks = {}
 
 def load_model(model_size="1b"):
     global device, vl_chat_processor_1b, vl_gpt_1b, vl_chat_processor_7b, vl_gpt_7b
@@ -63,6 +72,7 @@ def generate(
     mmgpt: MultiModalityCausalLM,
     vl_chat_processor: VLChatProcessor,
     prompt: str,
+    generation_id: str,
     temperature: float = 0.8,
     parallel_size: int = 1,
     cfg_weight: float = 5,
@@ -123,12 +133,9 @@ def generate(
     # 生成したサンプルのベースディレクトリを作成
     os.makedirs('generated_images', exist_ok=True)
 
-    # このジェネレーション用にタイムスタンプ+ランダム文字列の新しいディレクトリを作成
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    random_str = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
-    generation_id = f"{timestamp}_{random_str}"
+    # 指定されたgeneration_idで保存ディレクトリを使用
     generation_dir = os.path.join('generated_images', generation_id)
-    os.makedirs(generation_dir, exist_ok=True)
+    # すでに存在するはずのディレクトリなので作成しない
 
     image_paths = []
     for i in range(parallel_size):
@@ -147,9 +154,40 @@ def generate(
         "elapsed_time": elapsed_time
     }
 
+def generate_in_background(generation_id, mmgpt, processor, formatted_prompt, temperature, parallel_size, cfg_weight):
+    """バックグラウンドスレッドで画像生成を実行する関数"""
+    global tasks
+    try:
+        tasks[generation_id]['status'] = 'processing'
+        tasks[generation_id]['start_time'] = time.time()
+        
+        # 画像生成実行 - generation_idを渡す
+        result = generate(
+            mmgpt, 
+            processor, 
+            formatted_prompt, 
+            generation_id=generation_id,  # generation_idを渡す
+            temperature=temperature,
+            parallel_size=parallel_size,
+            cfg_weight=cfg_weight
+        )
+        
+        # 成功時の処理
+        tasks[generation_id]['status'] = 'completed'
+        tasks[generation_id]['result'] = {
+            'image_count': len(result['image_paths']),
+            'elapsed_time': result['elapsed_time'],
+            'image_paths': result['image_paths']
+        }
+    except Exception as e:
+        # エラー時の処理
+        tasks[generation_id]['status'] = 'failed'
+        tasks[generation_id]['error'] = str(e)
+        print(f"Error in background generation: {str(e)}")
+
 @app.route('/generate', methods=['POST'])
 def generate_image_api():
-    global vl_gpt_1b, vl_chat_processor_1b, vl_gpt_7b, vl_chat_processor_7b
+    global vl_gpt_1b, vl_chat_processor_1b, vl_gpt_7b, vl_chat_processor_7b, tasks
     
     data = request.get_json()
     if not data or 'prompt' not in data:
@@ -199,26 +237,42 @@ def generate_image_api():
     )
     formatted_prompt = sft_format + processor.image_start_tag
     
-    try:
-        # 画像生成
-        result = generate(
-            mmgpt, 
-            processor, 
-            formatted_prompt, 
-            temperature=temperature,
-            parallel_size=parallel_size,
-            cfg_weight=cfg_weight
-        )
-        
-        return jsonify({
-            'success': True,
-            'generation_id': result['generation_id'],
-            'image_count': len(result['image_paths']),
-            'elapsed_time': result['elapsed_time'],
-            'quality': quality
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    # このジェネレーション用にタイムスタンプ+ランダム文字列の新しいディレクトリを作成
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    random_str = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+    generation_id = f"{timestamp}_{random_str}"
+    
+    # 生成したサンプルのベースディレクトリを作成
+    os.makedirs('generated_images', exist_ok=True)
+    generation_dir = os.path.join('generated_images', generation_id)
+    os.makedirs(generation_dir, exist_ok=True)
+    
+    # タスク状態を初期化
+    tasks[generation_id] = {
+        'status': 'pending',
+        'prompt': prompt,
+        'quality': quality,
+        'temperature': temperature,
+        'parallel_size': parallel_size,
+        'cfg_weight': cfg_weight,
+        'created_at': time.time()
+    }
+    
+    # バックグラウンドで画像生成を開始
+    thread = Thread(
+        target=generate_in_background,
+        args=(generation_id, mmgpt, processor, formatted_prompt, temperature, parallel_size, cfg_weight)
+    )
+    thread.daemon = True  # メインプロセスが終了したらスレッドも終了
+    thread.start()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Image generation task has started.',
+        'generation_id': generation_id,
+        'status': 'pending',
+        'quality': quality
+    })
 
 @app.route('/images/<generation_id>/<filename>', methods=['GET'])
 def get_image(generation_id, filename):
@@ -236,10 +290,42 @@ def list_images(generation_id):
         return jsonify({
             'generation_id': generation_id,
             'images': image_files,
-            'urls': [f'/images/{generation_id}/{img}' for img in image_files]
+            'count': len(image_files)
         })
     except FileNotFoundError:
-        return jsonify({'error': 'Generation ID not found'}), 404
+        return jsonify({'error': f'Generation ID {generation_id} not found'}), 404
+
+@app.route('/status/<generation_id>', methods=['GET'])
+def get_generation_status(generation_id):
+    """タスクのステータスを確認するエンドポイント"""
+    global tasks
+    
+    if generation_id not in tasks:
+        return jsonify({'error': f'Generation ID {generation_id} not found. If it may have already been generated, try requesting /images/{generation_id}.'}), 404
+    
+    task_info = tasks[generation_id]
+    response = {
+        'generation_id': generation_id,
+        'status': task_info['status'],
+        'quality': task_info['quality'],
+        'created_at': task_info['created_at']
+    }
+    
+    # 処理完了時の情報を追加
+    if task_info['status'] == 'completed':
+        response['result'] = task_info['result']
+    
+    # エラー時の情報を追加
+    if task_info['status'] == 'failed':
+        response['error'] = task_info['error']
+    
+    # 処理中の場合は進行中の時間を追加
+    if task_info['status'] == 'processing' and 'start_time' in task_info:
+        response['processing_time'] = time.time() - task_info['start_time']
+    
+    del tasks[generation_id]
+    
+    return jsonify(response)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=True)
