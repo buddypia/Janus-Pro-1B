@@ -137,7 +137,7 @@ def main():
 
         print("Saving generated image...")
         # Create a base directory for all generated samples
-        os.makedirs('generated_samples', exist_ok=True)
+        os.makedirs('generated_images', exist_ok=True)
 
 
         # このジェネレーション用にタイムスタンプ+ランダム文字列の新しいディレクトリを作成
