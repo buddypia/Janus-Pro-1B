@@ -184,6 +184,9 @@ def generate_in_background(generation_id, mmgpt, processor, formatted_prompt, te
         tasks[generation_id]['error'] = str(e)
         print(f"Error in background generation: {str(e)}")
 
+    if generation_id in tasks:
+        del tasks[generation_id]
+
 @app.route('/generate', methods=['POST'])
 def generate_image_api():
     global vl_gpt_1b, vl_chat_processor_1b, vl_gpt_7b, vl_chat_processor_7b, tasks
@@ -321,8 +324,6 @@ def get_generation_status(generation_id):
     # 処理中の場合は進行中の時間を追加
     if task_info['status'] == 'processing' and 'start_time' in task_info:
         response['processing_time'] = time.time() - task_info['start_time']
-    
-    del tasks[generation_id]
     
     return jsonify(response)
 
